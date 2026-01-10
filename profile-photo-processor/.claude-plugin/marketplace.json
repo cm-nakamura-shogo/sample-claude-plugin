@@ -1,0 +1,22 @@
+{
+  "name": "profile-photo-processor",
+  "owner": {
+    "name": "Your Name",
+    "email": "your-email@example.com"
+  },
+  "metadata": {
+    "description": "Profile photo standardization skill with background removal and face centering",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "profile-photo-processor",
+      "description": "プロフィール写真の標準化処理。背景除去、顔センタリングを自動で行う。Dockerで実行するため安全。",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/profile-photo"
+      ]
+    }
+  ]
+}
