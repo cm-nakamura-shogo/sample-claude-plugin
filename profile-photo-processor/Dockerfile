@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for opencv and rembg
+# OpenCV と rembg に必要なシステム依存関係をインストール
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
@@ -12,15 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Python依存関係をインストール
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Pre-download the rembg model to avoid download at runtime
+# rembgモデルを事前ダウンロード（実行時のダウンロードを回避）
 RUN python -c "from rembg import new_session; new_session('isnet-general-use')"
 
-# Copy the processing script
+# 処理スクリプトをコピー
 COPY process_photo.py .
 
-# Set entrypoint
 ENTRYPOINT ["python", "process_photo.py"]

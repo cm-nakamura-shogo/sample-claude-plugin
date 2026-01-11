@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Profile Photo Processor
-- Remove background and replace with #e1e1e1
-- Detect face and standardize position
-- Output standardized profile photos
+
+プロフィール写真を標準化するスクリプト:
+- 人物を切り出し、背景を #e1e1e1 に置換
+- 顔の位置とサイズを統一
+- 明るさを標準化
 """
 
 import argparse
+import io
 import sys
 from pathlib import Path
 
@@ -15,109 +18,176 @@ import numpy as np
 from PIL import Image
 from rembg import remove, new_session
 
-# Constants
+# 定数
 BACKGROUND_COLOR = (225, 225, 225)  # #e1e1e1
-OUTPUT_WIDTH = 810
-OUTPUT_HEIGHT = 1440
-FACE_POSITION_RATIO = 0.38  # Face center at 38% from top
+OUTPUT_WIDTH = 2160
+OUTPUT_HEIGHT = 3840
+FACE_POSITION_RATIO = 0.30  # 顔の中心を上から30%の位置に配置
+TARGET_FACE_RATIO = 0.18  # 顔サイズを画像高さの18%に統一
 
 
 def detect_face(image_np: np.ndarray) -> tuple[int, int, int, int] | None:
-    """Detect face using OpenCV's Haar Cascade classifier."""
+    """OpenCVのHaar Cascadeで顔を検出"""
     gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
 
-    # Load face cascade
     cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
     face_cascade = cv2.CascadeClassifier(cascade_path)
 
-    # Detect faces
     faces = face_cascade.detectMultiScale(
         gray,
         scaleFactor=1.1,
         minNeighbors=5,
-        minSize=(50, 50)
+        minSize=(100, 100)
     )
 
     if len(faces) == 0:
         return None
 
-    # Return the largest face
-    largest_face = max(faces, key=lambda f: f[2] * f[3])
-    return tuple(largest_face)
+    # 最大の顔を返す
+    largest = max(faces, key=lambda f: f[2] * f[3])
+    return tuple(largest)
 
 
-def process_image(input_path: str, output_path: str, session) -> bool:
-    """Process a single image."""
+def normalize_brightness(image: Image.Image) -> Image.Image:
+    """明るさを標準化（画像の明るさに応じてCLAHE強度を調整）"""
+    img_np = np.array(image)
+
+    # RGBからLABに変換
+    lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+
+    # 画像の平均輝度を計算（0-255）
+    mean_brightness = np.mean(l)
+
+    # 明るさに応じてclipLimitを調整
+    # 暗い画像（mean < 100）: clipLimit最大1.5
+    # 明るい画像（mean > 150）: clipLimit最小0.3
+    # 中間: 線形補間
+    if mean_brightness < 100:
+        clip_limit = 1.5
+    elif mean_brightness > 150:
+        clip_limit = 0.3
+    else:
+        # 100-150の範囲で線形補間（1.5から0.3へ）
+        clip_limit = 1.5 - (mean_brightness - 100) / 50 * 1.2
+
+    # CLAHEをL（輝度）チャンネルに適用
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(16, 16))
+    l_normalized = clahe.apply(l)
+
+    # LABを再結合してRGBに戻す
+    lab_normalized = cv2.merge([l_normalized, a, b])
+    rgb_normalized = cv2.cvtColor(lab_normalized, cv2.COLOR_LAB2RGB)
+
+    return Image.fromarray(rgb_normalized)
+
+
+def process_single_image(input_path: str, output_path: str, session) -> bool:
+    """単一画像を処理"""
     try:
-        # Load image
+        print(f"処理中: {input_path}")
+
+        # 画像読み込み
         with open(input_path, 'rb') as f:
             input_data = f.read()
 
-        # Remove background with post-processing for smoother edges
+        # 背景除去
         output_data = remove(
             input_data,
             session=session,
             post_process_mask=True,
         )
-        img = Image.open(__import__('io').BytesIO(output_data)).convert('RGBA')
+        img_rgba = Image.open(io.BytesIO(output_data)).convert('RGBA')
 
-        # Convert to numpy for face detection
-        img_np = np.array(img)
-        rgb_for_detection = img_np[:, :, :3]
+        # 顔検出用にRGBに変換
+        img_rgb = img_rgba.convert('RGB')
+        img_np = np.array(img_rgb)
 
-        # Detect face
-        face = detect_face(rgb_for_detection)
+        face = detect_face(img_np)
 
         if face is None:
-            print(f"Warning: No face detected in {input_path}, using center positioning")
-            # Use image center as fallback
-            face_center_y = img.height // 2
-            face_height = img.height // 4
+            print(f"  警告: 顔が検出されませんでした。画像中心を基準に処理します。")
+            face_center_y = img_rgba.height // 2
+            face_height = img_rgba.height // 5
+            face_center_x = img_rgba.width // 2
         else:
             x, y, w, h = face
+            face_center_x = x + w // 2
             face_center_y = y + h // 2
             face_height = h
+            print(f"  顔検出: 位置({x}, {y}), サイズ({w}x{h})")
 
-        # Calculate scaling to achieve standard face size
-        # Target face height should be about 18% of output height
-        target_face_height = OUTPUT_HEIGHT * 0.18
+        # スケール計算（顔サイズを統一）
+        target_face_height = OUTPUT_HEIGHT * TARGET_FACE_RATIO
         scale = target_face_height / face_height
 
-        # Scale the image
-        new_width = int(img.width * scale)
-        new_height = int(img.height * scale)
-        img_scaled = img.resize((new_width, new_height), Image.LANCZOS)
+        # 画像をスケーリング
+        new_width = int(img_rgba.width * scale)
+        new_height = int(img_rgba.height * scale)
+        img_scaled = img_rgba.resize((new_width, new_height), Image.LANCZOS)
 
-        # Calculate position to place face at target position
+        # 顔位置を計算
         scaled_face_center_y = int(face_center_y * scale)
+        scaled_face_center_x = int(face_center_x * scale)
         target_face_y = int(OUTPUT_HEIGHT * FACE_POSITION_RATIO)
 
-        # Calculate paste position
+        # 配置位置を計算
         paste_y = target_face_y - scaled_face_center_y
-        paste_x = (OUTPUT_WIDTH - new_width) // 2
+        paste_x = (OUTPUT_WIDTH - new_width) // 2  # 水平方向は中央配置
 
-        # Create output image with background color
-        output_img = Image.new('RGB', (OUTPUT_WIDTH, OUTPUT_HEIGHT), BACKGROUND_COLOR)
+        # 背景画像を作成
+        output_img = Image.new('RGBA', (OUTPUT_WIDTH, OUTPUT_HEIGHT), (*BACKGROUND_COLOR, 255))
 
-        # Paste the processed image
+        # 人物を配置
         output_img.paste(img_scaled, (paste_x, paste_y), img_scaled)
 
-        # Save output
-        output_img.save(output_path, 'JPEG', quality=95)
+        # RGBに変換して明るさを正規化
+        output_rgb = output_img.convert('RGB')
+        output_normalized = normalize_brightness(output_rgb)
 
+        # 保存
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        output_normalized.save(output_path, 'JPEG', quality=95)
+
+        print(f"  完了: {output_path}")
         return True
 
     except Exception as e:
-        print(f"Error processing {input_path}: {e}", file=sys.stderr)
+        print(f"  エラー: {e}", file=sys.stderr)
         return False
 
 
+def process_directory(input_dir: str, output_dir: str, extensions: set, session) -> tuple[int, int]:
+    """ディレクトリ内の画像を一括処理"""
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    success = 0
+    failed = 0
+
+    for file in input_path.iterdir():
+        if file.is_file() and file.suffix.lower().lstrip('.') in extensions:
+            out_file = output_path / f"{file.stem}_processed.jpg"
+            if process_single_image(str(file), str(out_file), session):
+                success += 1
+            else:
+                failed += 1
+
+    return success, failed
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Process profile photos')
-    parser.add_argument('input', help='Input file or directory')
-    parser.add_argument('output', help='Output file or directory')
-    parser.add_argument('--extensions', default='jpg,jpeg,png,webp',
-                        help='Comma-separated list of file extensions to process')
+    parser = argparse.ArgumentParser(
+        description='プロフィール写真を標準化します'
+    )
+    parser.add_argument('input', help='入力ファイルまたはディレクトリ')
+    parser.add_argument('output', help='出力ファイルまたはディレクトリ')
+    parser.add_argument(
+        '--extensions',
+        default='jpg,jpeg,png,webp',
+        help='処理対象の拡張子（カンマ区切り）'
+    )
 
     args = parser.parse_args()
 
@@ -125,46 +195,33 @@ def main():
     output_path = Path(args.output)
     extensions = set(ext.lower().strip() for ext in args.extensions.split(','))
 
-    # Initialize rembg session with isnet-general-use model for better edge quality
+    # rembgセッションを初期化
+    print("背景除去モデルを初期化中...")
     session = new_session('isnet-general-use')
+    print("初期化完了\n")
 
     if input_path.is_file():
-        # Single file processing
+        # 単一ファイル処理
         if output_path.is_dir():
-            output_file = output_path / f"{input_path.stem}_processed.jpg"
+            out_file = output_path / f"{input_path.stem}_processed.jpg"
         else:
-            output_file = output_path
+            out_file = output_path
 
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        if process_image(str(input_path), str(output_file), session):
-            print(f"Processed: {input_path} -> {output_file}")
+        if process_single_image(str(input_path), str(out_file), session):
+            print("\n処理が完了しました。")
         else:
             sys.exit(1)
 
     elif input_path.is_dir():
-        # Directory processing
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        success_count = 0
-        fail_count = 0
-
-        for file_path in input_path.iterdir():
-            if file_path.suffix.lower().lstrip('.') in extensions:
-                output_file = output_path / f"{file_path.stem}_processed.jpg"
-
-                if process_image(str(file_path), str(output_file), session):
-                    print(f"Processed: {file_path.name} -> {output_file.name}")
-                    success_count += 1
-                else:
-                    fail_count += 1
-
-        print(f"\nCompleted: {success_count} succeeded, {fail_count} failed")
-
-        if fail_count > 0:
+        # ディレクトリ処理
+        success, failed = process_directory(
+            str(input_path), str(output_path), extensions, session
+        )
+        print(f"\n処理完了: 成功 {success}件, 失敗 {failed}件")
+        if failed > 0:
             sys.exit(1)
     else:
-        print(f"Error: Input path does not exist: {input_path}", file=sys.stderr)
+        print(f"エラー: 入力パスが存在しません: {input_path}", file=sys.stderr)
         sys.exit(1)
 
 
