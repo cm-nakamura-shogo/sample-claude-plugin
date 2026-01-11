@@ -5,7 +5,6 @@ Profile Photo Processor
 プロフィール写真を標準化するスクリプト:
 - 人物を切り出し、背景を #e1e1e1 に置換
 - 顔の位置とサイズを統一
-- 明るさを標準化
 """
 
 import argparse
@@ -46,40 +45,6 @@ def detect_face(image_np: np.ndarray) -> tuple[int, int, int, int] | None:
     # 最大の顔を返す
     largest = max(faces, key=lambda f: f[2] * f[3])
     return tuple(largest)
-
-
-def normalize_brightness(image: Image.Image) -> Image.Image:
-    """明るさを標準化（画像の明るさに応じてCLAHE強度を調整）"""
-    img_np = np.array(image)
-
-    # RGBからLABに変換
-    lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
-    l, a, b = cv2.split(lab)
-
-    # 画像の平均輝度を計算（0-255）
-    mean_brightness = np.mean(l)
-
-    # 明るさに応じてclipLimitを調整
-    # 暗い画像（mean < 100）: clipLimit最大1.5
-    # 明るい画像（mean > 150）: clipLimit最小0.3
-    # 中間: 線形補間
-    if mean_brightness < 100:
-        clip_limit = 1.5
-    elif mean_brightness > 150:
-        clip_limit = 0.3
-    else:
-        # 100-150の範囲で線形補間（1.5から0.3へ）
-        clip_limit = 1.5 - (mean_brightness - 100) / 50 * 1.2
-
-    # CLAHEをL（輝度）チャンネルに適用
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(16, 16))
-    l_normalized = clahe.apply(l)
-
-    # LABを再結合してRGBに戻す
-    lab_normalized = cv2.merge([l_normalized, a, b])
-    rgb_normalized = cv2.cvtColor(lab_normalized, cv2.COLOR_LAB2RGB)
-
-    return Image.fromarray(rgb_normalized)
 
 
 def process_single_image(input_path: str, output_path: str, session) -> bool:
@@ -141,13 +106,12 @@ def process_single_image(input_path: str, output_path: str, session) -> bool:
         # 人物を配置
         output_img.paste(img_scaled, (paste_x, paste_y), img_scaled)
 
-        # RGBに変換して明るさを正規化
+        # RGBに変換して保存
         output_rgb = output_img.convert('RGB')
-        output_normalized = normalize_brightness(output_rgb)
 
         # 保存
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        output_normalized.save(output_path, 'JPEG', quality=95)
+        output_rgb.save(output_path, 'JPEG', quality=95)
 
         print(f"  完了: {output_path}")
         return True
