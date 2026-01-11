@@ -1,0 +1,22 @@
+{
+  "name": "profile-photo-skills",
+  "owner": {
+    "name": "Your Name",
+    "email": "your-email@example.com"
+  },
+  "metadata": {
+    "description": "Profile photo processing skills for standardizing profile photos",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "profile-photo-processor",
+      "description": "Process profile photos: remove background, standardize face position/size, and apply gray background (#e1e1e1). Supports batch processing.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./profile-photo-processor"
+      ]
+    }
+  ]
+}
