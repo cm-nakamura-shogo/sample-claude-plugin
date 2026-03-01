@@ -1,21 +1,36 @@
 {
-  "name": "profile-photo-skills",
+  "name": "cm-nakamura-plugins",
   "owner": {
     "name": "Your Name",
     "email": "your-email@example.com"
   },
   "metadata": {
-    "description": "Profile photo processing skills for standardizing profile photos",
+    "description": "Sample plugin with development commands and profile photo processing skill",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "profile-photo-processor",
-      "description": "Process profile photos: remove background, standardize face position/size, and apply gray background (#e1e1e1). Supports batch processing.",
-      "source": "./",
+      "name": "sample",
+      "description": "Git, markdown, PDF, Python commands and profile photo processing skill.",
+      "source": "./plugins/sample",
       "strict": false,
+      "commands": [
+        "git/branch-create",
+        "git/commit-multi-en",
+        "git/commit-multi",
+        "git/commit-single-en",
+        "git/commit-single",
+        "git/issue-from-request",
+        "git/pull-request-create",
+        "git/pull-request-review",
+        "md/markdown-adr",
+        "md/markdown-knowledge",
+        "pdf/pdf-page-extract",
+        "pdf/pdf-search",
+        "py/python-refactor-single-file"
+      ],
       "skills": [
-        "./profile-photo-processor"
+        "profile-photo-processor"
       ]
     }
   ]
